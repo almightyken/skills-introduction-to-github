@@ -1,0 +1,344 @@
+---
+title: 'Exploring NOAA Precipitation Types and Temperature Profiles: An Analysis of
+  18 Years of Weather Data in the United States'
+author: "Conner Stallman, Ken Mitchell, and Landon Bragg"
+date: "2023-12-9"
+output:
+  html_document:
+    df_print: paged
+urlcolor: blue
+fontsize: 12pt
+subtitle: CSI 2300 Final Project
+background: null
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include = FALSE}
+load("predictors.Rdata")
+library(knitr)
+library(fields)
+library(stringr)
+library(lubridate)
+library(stats)
+library(stats)
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+library(tibble)
+```
+
+
+\fontsize{24pt}{30pt}\selectfont __Abstract__\
+\normalsize
+Abstract: Our dataset, NOAA Precipitation types, provides data that spans 18
+years and focuses on the precipitation events of non-summer months. The data 
+records precipitation events at various weather stations and categorizes them 
+into either Rain, Snow, Ice Pellets, or Freezing rain. The observations that are
+recorded are correlated with altitude temperature profiles from corresponding 
+grid boxes in a numerical weather prediction model. This model allows us to
+understand how temperature influences precipitation type. The project aims to 
+identify outliers and improve classification of precipitation types using 
+temperature profiles. A way we are finding outliers is by finding data points 
+that we know should not exist but do exist. In this report, we are looking at 
+visibly outlying temperature profiles of ice pellets and looking at 
+precipitation classified as snow that is measured above the freezing point.
+
+
+\fontsize{24pt}{30pt}\selectfont __Introduction__\
+\normalsize
+The project aims to enhance weather forecasting models, contributing to better
+preparation and response to weather-related hazards, thereby improving public 
+safety and efficiency in sectors like agriculture and transportation. We found 
+that certain stations measuring being flawed is the root issue of these 
+outliers, however for ice pellet profiles we were not able to explain why our 
+outliers were occurring. With this information we can help safety measures in 
+this city by enhancing weather forecasting models.
+
+![Dangers of weather](frozen_power_lines.jpg){width=65% height=65%}
+
+```{r include = FALSE}
+my_year<-as.numeric(substr(dates, 1, 4))
+unique(my_year)
+
+my_month<-as.numeric(substr(dates, 5, 6))
+sort(unique(my_month))
+
+# Check unique values in the my_year variable
+unique_years <- unique(my_year)
+print("Unique years in the my_year variable:")
+print(unique_years)
+
+```
+
+
+
+```{r include = FALSE}
+#*Plotting some of temperature vertical profiles*
+dim(Twb.prof)
+head(Twb.prof)
+step.size <- seq(0, 3000, by = 100)
+xlims <- range(Twb.prof[1:100, ])
+#Ice Pellet Profiles
+pellet <- which(ptype == "IP")
+xlims <- range(Twb.prof[pellet,])
+
+```
+
+
+```{r echo = FALSE}
+df <- data.frame(
+  ptype = ptype,
+  Twb.prof = Twb.prof[,1],
+  station.ind = station.ind,
+  date.ind = date.ind
+)
+```
+
+
+Analyzing the ice_pellet plot
+```{r echo = FALSE}
+ice_pellet_df <- df %>%
+  filter(ptype == "IP")
+ice_pellet_df$pellet <- pellet
+
+stray_ice_pellet_df <- ice_pellet_df %>%
+  filter(Twb.prof > 280)
+
+#Ice Pellet Profiles
+pellet <- which(ptype == "IP")
+xlims <- range(Twb.prof[pellet,])
+plot(Twb.prof[1,], step.size, xlab = "Temperature (K)", ylab = "Meters AGL", type = "n", xlim = xlims, col = rgb(0,0,0,.1))
+title("Ice Pellet Profiles",cex.main = 2)
+abline(v = 273.15, col = 2, lwd = 2)
+for(i in 1:length(pellet)){
+	lines(Twb.prof[pellet[i],],step.size,col=rgb(0,0,0,.1))
+}
+abline(v=273.15,col=5,lwd=3)
+lines(Twb.prof[pellet[694],],step.size,col=4,lwd=2) ## Normal
+lines(Twb.prof[pellet[31],],step.size,col=2,lwd=2) ## Coldest
+lines(Twb.prof[pellet[445],],step.size,col=2,lwd=2) ## Warmest
+lines(Twb.prof[pellet[555],],step.size,col=2,lwd=2) ## Strange
+text(278.5, 2500, "Points Above Freezing", col = "steelblue", font = 4, cex = 0.8)
+text(280, 1250, "Strange", col = "black", font = 1, cex = 0.8)
+text(253, 350, "Coldest recorded landing point", col = "black", font = 1, cex = 0.8)
+text(280, 500, "Warmest recorded landing point", col = "black", font = 1, cex = 0.8)
+text(267, 2500, "Normal line", col = "black", font = 1, cex = 0.8)
+
+
+sorted_df <- ice_pellet_df %>%
+  arrange(desc(Twb.prof))
+top_10_pellets <- sorted_df %>%
+  select(Twb.prof, station.ind) %>%
+  slice(1:10)
+coldest_10_pellets <- sorted_df %>%
+  select(Twb.prof, station.ind) %>%
+  slice(752:743)
+
+# Select the desired columns and the top 10 rows
+# Add color to the Twb.prof column
+top_10_pellets$Twb.prof <- cell_spec(top_10_pellets$Twb.prof, "html", color = "white", bold = T, background = "darkblue")
+
+# Add color to the station.ind column
+top_10_pellets$station.ind <- cell_spec(top_10_pellets$station.ind, "html", color = "black", bold = T, background = "lightblue")
+
+coldest_10_pellets$Twb.prof <- cell_spec(coldest_10_pellets$Twb.prof, "html", color = "white", bold = T, background = "darkblue")
+
+coldest_10_pellets$station.ind <- cell_spec(coldest_10_pellets$station.ind, "html", color = "black", bold = T, background = "lightblue")
+
+combined_table <-cbind(top_10_pellets, coldest_10_pellets)
+
+# Style the table
+styled_table <- combined_table %>%
+  kable("html", escape = F) %>%  # Set escape = F to allow HTML in the table
+  kable_styling("striped", full_width = F)
+
+styled_table
+
+
+
+```
+
+
+\fontsize{24pt}{30pt}\selectfont __Results__\
+
+\normalsize
+We notice large discrepancies between the temperatures of the ice pellet profiles
+which raises concern for the accuracy of these recordings
+We find that by observing the warmest recorded ice pellets and the coldest ice
+pellets that there does not seem to be a correlation between the station or day
+that the recording was made and the outliers that exist. This leads us to
+believe that outliers when it comes to ice pellets are simply inevitable
+and near impossible to predict or address because there is no evident correlation
+visible. Going forward it would be helpful to have more data points so we can
+hopefully observe a more obvious trend.
+
+*Snow Profiles*
+
+```{r echo = FALSE}
+set.seed(1)
+snow <- which(ptype=="SN")
+xlims <- range(Twb.prof[snow,])
+plot(Twb.prof[1,],step.size,xlab="Temperature (K)",ylab="Meters Above Ground Level",type="n",xlim=xlims,col=rgb(0,0,0,.1))
+title("Snow Profiles",cex.main=2)
+for(i in 1:length(snow)){
+	lines(Twb.prof[snow[i],],step.size,col=rgb(0,0,0,.1))
+}
+text(287, 2500, "Points Above Freezing", col = "steelblue", font = 4)
+abline(v=275,col=2,lwd=2)
+```
+
+
+Observing Snow when temperature is above freezing
+```{r echo = FALSE}
+snow_temp_df <- df %>%
+  filter(ptype == "SN" & Twb.prof > 275)
+
+station_counts <- snow_temp_df %>%
+  group_by(station.ind) %>%
+  summarize(count = n())
+
+# Assuming station_counts is your data frame with station counts
+# Arrange the data frame in descending order based on the count
+station_counts_sorted <- station_counts %>%
+  arrange(desc(count))
+
+# Plot the bar chart
+ggplot(station_counts_sorted, aes(x = factor(station.ind), y = count)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Station Counts",
+       x = "Station Index",
+       y = "Count of snow recorded above 275 kelvin") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_x_discrete(breaks = seq(1, max(station_counts_sorted$station.ind), by = 5))
+
+
+top_n_value <- 10
+
+# Select the top N station indexes
+top_stations <- station_counts %>%
+  top_n(top_n_value, wt = count) %>%
+  arrange(desc(count))
+
+# Add an index column for row color
+top_stations$index <- 1:nrow(top_stations)
+
+# Create a formatted table with alternating row colors
+top_stations_table <- top_stations %>%
+  kable("html", caption = "Top Station Indexes") %>%
+  kable_styling("striped", full_width = FALSE) %>%
+  add_header_above(c(" ", "Top Stations" = 2), background = "#F8766D", color = "black") %>%  # Header row color
+  row_spec(top_stations$index, background = "steelblue")  # Alternating row color
+
+# Display the table
+top_stations_table
+
+count_condition <- sum(df$ptype == "SN" & df$Twb.prof > 275)
+print(paste("Number of times snow is recorded above freezing temperatures"))
+count_condition
+
+top_10_station_names <- c(stations[550], stations[551], stations[530], stations[545],
+                          stations[529], stations[535], stations[546], stations[531],
+                          stations[549], stations[25])
+top_10_station_names
+```
+
+
+```{r include = FALSE}
+#*Proportion of observations of each type*
+head(ptype)
+summary(ptype)
+tail(ptype)
+unique(ptype)
+class(ptype)
+table(ptype)
+
+nn <- length(ptype)
+```
+
+
+\fontsize{24pt}{30pt}\selectfont __Results__\
+
+\normalsize
+From this data we see that there are cases where snow is recorded, however the 
+temperature of the snow is recorded to be well above freezing, for this reason 
+it is necessary to try to understand why this might be happening so we can solve
+the issue. By summing each data point where this condition occurred and 
+contributing it to the station of which the incorrect data point occurred we are
+able to observe which recording stations may be flawed or broken. As opposed to
+the previous data, we were able to find the roots of our outliers/problematic
+data points. We found the 
+top 9 stations where there were issues all took place in the same region. Because
+of that we should investigate why there are so many of these impossible outliers
+occurring in that specific region.
+
+
+```{r echo = FALSE}
+library(maps)
+lon.new <- lon - 360
+plot(lon.new,lat,pch=19, xlab = "Longitude", ylab = "Latitude", main = "NOAA Precipiation recording stations")
+
+
+data_new_points <- data.frame(
+  latitude = c(60.1167, 59.5167, 60.5, 70.2, 55.2208, 58.3667, 57.0667, 57.75, 62.3, 41.25),
+  longitude = c(-149.45, -139.6667, -145.5, -148.4667, -162.7278, -134.5833,-135.35, -152.5167, -150.1, -70.0667))
+points(data_new_points$longitude, data_new_points$latitude, pch = 19, col = "red", cex = 1.5)  
+
+
+map("world",add=T)
+map("state",add=T)
+```
+
+
+
+
+\fontsize{24pt}{30pt}\selectfont __Methods__\
+\normalsize
+I began by observing the wide gap in some of the recorded temperatures in ice 
+pellets. In order to try to explain this gap, I created a data frame where only 
+ice pellets were being observed so I could better get a grasp on what was 
+occurring in the ice pellet recordings. Next I pointed out the discrepancies on 
+the plot of ice pellets by writing some notes that could make the graph easier
+to understand. After that I created 2 side by side tables that display the
+ice pellets with the highest temperature and the ice pellets with the lowest 
+temperatures. The side by side table not only made it abundantly clear to see
+the discrepancies in temperature, but it also pointed out the lack of correlation
+between recording stations and outlier recordings.
+
+
+Next I looked at the temperature of snow being recorded. Snow melts at any 
+temperature above 32 degrees which is why it's concerning to look at the graph
+of snow and see data points where the snow is recorded to be well over 32 degrees.
+So I started by subsetting only snow profiles and within that, only snow profiles
+that had recorded temperatures above 32 degrees.
+I then made a bar graph which made it very clear to see that some stations were
+recording significantly more outliers than others. To elaborate on that thought
+I created a table to clearly express the idea that some stations were causing
+more problems than others. By doing this I was able to reveal the real world 
+geographical location of where these outliers were occurring.
+
+
+\fontsize{24pt}{30pt}\selectfont ___Discussion___\
+\normalsize
+The findings of our project hold significant implications for weather forecasting 
+models and the understanding of precipitation patterns during non-summer months.
+The identification of outliers in ice pellets and snow data raises questions
+about the accuracy of existing models and prompts considerations for improving
+public safety and efficiency in sectors like agriculture and transportation. The
+geographical disparities in outlier occurrences suggest potential regional 
+influences on data accuracy, urging further investigation into local climatic
+variations. The impact on safety measures, particularly in regions prone to
+mistaken outlier recordings of snow, underscores the practical applications of 
+our analysis. Moreover, the existence of outliers prompts a critical examination 
+of data quality and collection protocols at recording stations, emphasizing the
+need for standardized practices. Additionally, the project's focus on temperature
+profiles influencing precipitation types opens avenues for exploring climate 
+change implications and the integration of additional variables to comprehensively
+explain gaps in recorded temperatures for ice pellets. Addressing these questions 
+will refine our understanding of weather dynamics, contributing to the ongoing
+efforts to enhance the reliability of weather predictions for the benefit of 
+society as a whole.
+

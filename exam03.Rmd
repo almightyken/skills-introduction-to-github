@@ -1,0 +1,243 @@
+---
+title: 'Exam 03'
+author: 'Ken Mitchell'
+output: "pdf_document"
+editor_options: 
+  chunk_output_type: console
+urlcolor: blue
+fontsize: 12pt
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  comment = "#", fig.height = 4, 
+  cache = FALSE,  collapse = TRUE,
+  error = TRUE
+)
+```
+
+
+# Exam Guidelines
+
+* Show your code for *every* question.
+* Submit your solutions as a .pdf knitted from a Markdown document.
+* The exam is designed to take no more than 2 hours, but there is no time limit.
+* You may use your notes and online resources *with appropriate citations*. This is particularly important if you decide to use functions or packages that we have not discussed in class!
+* You may not confer with other students or people.
+
+
+# Introduction
+
+The data that you will use for this exam come from the Boulder Water Resource and Recovery Facility, and were also used for several previous in-class exercises.  Here is a short review of the data.
+
+First is a picture of the facility where the data are collected.  It shows three aeration basins together, and the next plot shows a diagram of the flow of water through one aeration basin.  The red highlighted basins are ``aerated," meaning that oxygen is being pumped by blowers into the sludge, and the other basins are not aerated.  Two goals in this exam are to (1)  predict ammonia in Zone 7 and (2) classify observations as occurring on weekends versus weekdays using the measured numeric variables. 
+
+
+![](bwrrf.png){width=50%}
+![](aeration_basin.png){width=25%}
+![](legend.png){width=30%}
+
+
+Run this code first.  It  loads the data, adds two columns that are a function of the hour of the day, and removes one redundant column. If you do not have the `mowateR` library, then load the `boulder_ammonia.rda` dataset, and run the lines after the comment `Data Wrangling`.
+```{r  include=TRUE}
+suppressMessages(library(mowateR))
+suppressMessages(library(lubridate))
+data(boulder_ammonia)
+
+# Data Wrangling
+obs_hour <- hour(boulder_ammonia$Date.Time)
+obs_minute <- minute(boulder_ammonia$Date.Time)
+boulder_ammonia$cosine_hour <- cos((obs_hour + obs_minute/60)*(360/24)*pi/180)
+boulder_ammonia$sine_hour <- sin((obs_hour + obs_minute/60)*(360/24)*pi/180)
+
+boulder_ammonia <- boulder_ammonia[ , -15]
+```
+
+
+### Question 1
+a. Split the data such that observations 5,000 to 9,999 are in a dataframe representing the training set, and  observations 15,000 to 19,999 are in a dataframe representing the testing set.  Call these `train` and `test`, respectively. (4 points)
+
+```{r}
+train <- boulder_ammonia[5000:9999, ]
+
+test <- boulder_ammonia[15000:19999, ]
+```
+
+b. Plot ammonia in the training dataset over time.  What pattern(s) do you notice? (4 points)
+```{r}
+plot(train$Date.Time, train$AB3.Z7.Ammonia.mg.N.L, 
+     xlab = "Date Time", ylab = "Ammonia",
+     main = "Ammonia Levels Over Time in the Training Dataset")
+```
+
+I see a constant pattern of increse then decrease like a rollercoaster the climbs up than drops down.
+
+c. If our goal is to use these data to build a model to predict ammonia, what is the purpose of splitting the data into training and testing sets? (4 points)
+
+The purpose of splitting the data is to evaluate the performance of the predictive models. The training set is used to fit the model and the testing set is used to assess how well the model generalizes to new data.
+
+### Question 2
+
+a. One possibility is to use the cosine and sine variables to model ammonia.  Fit a model using only these two variables on the training dataset.  It will be referred to as the `trig` model for the remainder of the exam. (4 points)
+```{r}
+trig <- lm(AB3.Z7.Ammonia.mg.N.L ~ cosine_hour + sine_hour, data = train)
+```
+
+b. Is the model still linear even though using the cosine and sine predictors produce a nonlinear fit? Explain your answer.(4 points)
+
+The `trig` model, which uses cosine and sine predictors, is still considered a linear model because the relationship between these predictors and the outcome - Ammonia, is linear in the coefficients, despite the predictors themselves being derived from nonlinear trigonometric functions.
+
+c. What is the $R^2$ of this model for the training data? (4 points)
+```{r}
+summary(trig)
+```
+
+The $R^2$ of the `trig` model is 0.5275 for the training data.
+
+d. Create a plot of the ammonia values over time from the training dataset with the predicted values for the training data from the model overlaid. (6 points)
+```{r}
+predict_ammonia <- predict(trig, data = train)
+
+plot(train$Date.Time, train$AB3.Z7.Ammonia.mg.N.L,
+     col = "blue", xlab = "Date Time", ylab = "Ammonia",
+     main = "Actual and Predicted Ammonia Levels Over Time")
+```
+
+### Question 3
+a. Build a model using the training dataset and backward selection with the BIC criteria.  (4 points)
+```{r}
+full_model <- lm(AB3.Z7.Ammonia.mg.N.L ~., data = train[,-1])
+backward <- step(full_model, direction = "backward", k = log(nrow(train)), trace = 0)
+
+backward
+```
+
+b. To fit the full model needed for the `step` function, the code needed is:  
+  ```full_mod <- lm(AB3.Z7.Ammonia.mg.N.L ~ . , data = train[,-1])```
+  What is the purpose of the `-1` in the  `data=train[,-1]`? (4 points)
+
+The purpose of the `-1` on the `data=train[,-1]` is to exclude the first column (`Date.Time`) of the the `train` dataset.
+
+c. Which variables, if any, are removed from the model? (4 points)
+
+The `Date.Time` variavle was removed from the model
+
+d. Does it appear that including the additional variables improves upon the `trig` model from the prior question?  Explain your answer. (6 points)
+```{r}
+summary(trig)
+
+summary(backward)
+```
+
+After looking at the data, the additional variables in the `BIC_model` does indeed improve the `trig` model. As seen the `BIC_model` has a higher $R^2$ value which helps explain a larger proportion of the variance in the response variable. Along with that the `BIC_model` had lower residuals, and shows that it has smaller prediction errors.
+
+### Question 4
+a. Now, build a model for ammonia using the training dataset and lasso. (6 points)
+```{r}
+library(glmnet)
+
+X <- cbind(as.matrix(train[, -1]))
+Y <- train$AB3.Z7.Ammonia.mg.N.L
+
+lasso <- cv.glmnet(X, Y)
+
+lasso
+```
+
+b. Which variables are chosen for the model? (6 points)
+```{r}
+coef(lasso)
+```
+
+The variables chosen are `DF`, `%Dev`, and `Lambda` for the `lasso` model.
+
+c. What is the $R^2$ for this model on the training data?  You have to calculate it "by-hand" with the formula $R^2 = 1-SSE/SST$. (6 points)
+```{r}
+predicted_values <- predict(lasso, newx = X)
+sse <- sum((Y - predicted_values)^2)
+sst <- sum((Y - mean(Y))^2)
+lasso_r_squared <- 1 - sse / sst
+lasso_r_squared
+```
+
+
+### Question 5
+Now, use the 3 models that you have fit (`trig`,  `backward`, and `lasso`) to make predictions for the **testing** set.  Fill in the table below (by replacing the `xx` values with the numbers from your model): (10 points)
+
+| Model    | $R^2$         | RMSE         | MAE         | 
+|----------|---------------|--------------|-------------|
+|   Trig   |  0.5274951    |  1.951707    |  1.550814   |
+|   Back   |  0.805708     |  1.251523    |  0.9631351  |
+|   Lasso  |  lambda.1se 1 |  0.08276713  |  0.07225826 |
+
+```{r}
+trig_predict <- predict(trig, train)
+back_predict <- predict(backward, train)
+lasso_predict <- predict(lasso, X)
+
+trig_r_squared <- cor(trig_predict, train$AB3.Z7.Ammonia.mg.N.L)^2
+back_r_squared <- cor(back_predict, train$AB3.Z7.Ammonia.mg.N.L)^2
+lasso_r_squared <- cor(lasso_predict, train$AB3.Z7.Ammonia.mg.N.L)^2
+
+trig_error <- trig_predict - train$AB3.Z7.Ammonia.mg.N.L
+back_error <- back_predict - train$AB3.Z7.Ammonia.mg.N.L
+lasso_error <- lasso_predict - train$AB3.Z7.Ammonia.mg.N.L
+
+rmse_trig <- sqrt(mean(trig_error^2))
+mae_trig <- mean(abs(trig_error))
+
+rmse_back <- sqrt(mean(back_error^2))
+mae_back <- mean(abs(back_error))
+
+rmse_lasso <- sqrt(mean(lasso_error^2))
+mae_lasso <- mean(abs(lasso_error))
+
+trig_r_squared
+back_r_squared
+lasso_r_squared
+
+rmse_trig
+mae_trig
+
+rmse_back
+mae_back
+
+rmse_lasso
+mae_lasso
+```
+
+
+### Question 6
+If you had to recommend one model to the Boulder Water Resource and Recovery Facility, which one would it be?  Explain your answer.  (5 points)
+
+I would recommend the `backward` model is recommended for the Boulder Water Resource and Recovery Facility. the `backward` model showed better performance metrics on the training data compared to the other models, with a higher $R^2$ value and lower `RMSE` and `MAE`, suggesting better predictive accuracy and reliability.
+
+BONUS:  There is a glaring problem with the backward model's predictions.  What is it? (3 points)
+
+
+### Question 7
+The goal in this question is to classify whether it is a weekend day (Fri/Sat/Sun) or a weekday (Mon/Tues/Wed) using `new_train` and `new_test`, which will be the training and testing sets, respectively, for this problem. Include the `{r}` after the triple tick marks below, and run the  chunk of code. It sets up these two new frames with a new column called `class` that indicates whether the observation occurs on "FSS" or "MTW".
+
+```
+week_index_train <- 1913:3640
+new_train <- train[week_index_train, -1]
+new_train_col <- c(rep("MTW", 864), rep("FSS", 864))
+new_train$class <- new_train_col
+
+week_index_test <- 1993:3720
+new_test <- test[week_index_test, -1]
+new_test_col <- c(rep("MTW", 864), rep("FSS", 864))
+new_test$class <- new_test_col
+```
+
+a. Normalize the scale of the variables (except for `class`). See the code for Question 3, Lecture 23's exercises. Why is it important to remove the influence of scale in a clustering or classification problem? (5 points)
+
+b. Fit k-nearest neighbors with  the **training** data (and $k=1$) to make predictions on the **test** data. Report the confusion matrix and accuracy. (5 points)
+
+c. Is this model able to distinguish between weekday (MTW) and weekend (FSS) days? (4 points)
+
+d. Which type of day has the greater proportion of errors--MTW or FSS? (Hint: You can use the output from the confusion matrix to calculate this.) (5 points)
+
+
